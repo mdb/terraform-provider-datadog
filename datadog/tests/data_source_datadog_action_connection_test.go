@@ -23,7 +23,7 @@ func TestAccDatadogActionConnectionDatasource_AWS_AssumeRole(t *testing.T) {
 
 	connectionName := uniqueEntityName(ctx, t)
 
-	resource.Test(t, resource.TestCase{
+	resource.ParallelTest(t, resource.TestCase{
 		PreCheck:                 func() { testAccPreCheck(t) },
 		ProtoV5ProviderFactories: accProviders,
 		CheckDestroy:             testAccCheckDatadogConnectionDestroy(providers.frameworkProvider, "datadog_action_connection.aws_assume_role_conn"),

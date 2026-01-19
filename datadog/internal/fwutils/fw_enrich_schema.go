@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"strings"
 
+	actionSchema "github.com/hashicorp/terraform-plugin-framework/action/schema"
 	datasourceSchema "github.com/hashicorp/terraform-plugin-framework/datasource/schema"
 	ephemeralSchema "github.com/hashicorp/terraform-plugin-framework/ephemeral/schema"
 	resourceSchema "github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -167,6 +168,58 @@ func enrichEphemeralDescription(r any) ephemeralSchema.Attribute {
 		return v
 	default:
 		return r.(ephemeralSchema.Attribute)
+	}
+}
+
+// =============================================================================
+// ACTION SCHEMA ENRICHMENT FUNCTIONS
+// =============================================================================
+
+func EnrichFrameworkActionSchema(s *actionSchema.Schema) {
+	for i, attr := range s.Attributes {
+		s.Attributes[i] = enrichActionDescription(attr)
+	}
+	enrichActionMapBlocks(s.Blocks)
+}
+
+func enrichActionDescription(r any) actionSchema.Attribute {
+	switch v := r.(type) {
+	case actionSchema.StringAttribute:
+		buildEnrichedSchemaDescription(reflect.ValueOf(&v))
+		return v
+	case actionSchema.Int64Attribute:
+		buildEnrichedSchemaDescription(reflect.ValueOf(&v))
+		return v
+	case actionSchema.Float64Attribute:
+		buildEnrichedSchemaDescription(reflect.ValueOf(&v))
+		return v
+	case actionSchema.BoolAttribute:
+		buildEnrichedSchemaDescription(reflect.ValueOf(&v))
+		return v
+	default:
+		return r.(actionSchema.Attribute)
+	}
+}
+
+func enrichActionMapBlocks(blocks map[string]actionSchema.Block) {
+	for _, block := range blocks {
+		switch v := block.(type) {
+		case actionSchema.ListNestedBlock:
+			for i, attr := range v.NestedObject.Attributes {
+				v.NestedObject.Attributes[i] = enrichDatasourceDescription(attr)
+			}
+			enrichActionMapBlocks(v.NestedObject.Blocks)
+		case actionSchema.SingleNestedBlock:
+			for i, attr := range v.Attributes {
+				v.Attributes[i] = enrichDatasourceDescription(attr)
+			}
+			enrichActionMapBlocks(v.Blocks)
+		case actionSchema.SetNestedBlock:
+			for i, attr := range v.NestedObject.Attributes {
+				v.NestedObject.Attributes[i] = enrichDatasourceDescription(attr)
+			}
+			enrichActionMapBlocks(v.NestedObject.Blocks)
+		}
 	}
 }
 

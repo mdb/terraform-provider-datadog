@@ -14,6 +14,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework-validators/int64validator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/listvalidator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
+	"github.com/hashicorp/terraform-plugin-framework/action"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/provider"
@@ -29,6 +30,7 @@ import (
 )
 
 var _ provider.Provider = &FrameworkProvider{}
+var _ provider.ProviderWithActions = &FrameworkProvider{}
 
 var Resources = []func() resource.Resource{
 	NewAgentlessScanningAwsScanOptionsResource,
@@ -170,6 +172,10 @@ var Datasources = []func() datasource.DataSource{
 	NewOrganizationSettingsDataSource,
 }
 
+var Actions = []func() action.Action{
+	NewDatadogCreateEventAction,
+}
+
 // FrameworkProvider struct
 type FrameworkProvider struct {
 	CommunityClient     *datadogCommunity.Client
@@ -234,6 +240,16 @@ func (p *FrameworkProvider) DataSources(_ context.Context) []func() datasource.D
 	}
 
 	return wrappedDatasources
+}
+
+func (p *FrameworkProvider) Actions(_ context.Context) []func() action.Action {
+	var wrappedActions []func() action.Action
+	for _, f := range Actions {
+		r := f()
+		wrappedActions = append(wrappedActions, func() action.Action { return NewFrameworkActionWrapper(&r) })
+	}
+
+	return wrappedActions
 }
 
 func (p *FrameworkProvider) Metadata(_ context.Context, _ provider.MetadataRequest, response *provider.MetadataResponse) {
@@ -349,9 +365,10 @@ func (p *FrameworkProvider) Configure(ctx context.Context, request provider.Conf
 		return
 	}
 
-	// Make config available for data sources and resources
+	// Make config available for data sources, resources, and actions
 	response.DataSourceData = p
 	response.ResourceData = p
+	response.ActionData = p
 }
 
 func (p *FrameworkProvider) ConfigureConfigDefaults(ctx context.Context, config *ProviderSchema) diag.Diagnostics {
@@ -932,4 +949,64 @@ func (r *FrameworkDatasourceWrapper) Schema(ctx context.Context, req datasource.
 
 func (r *FrameworkDatasourceWrapper) Read(ctx context.Context, req datasource.ReadRequest, resp *datasource.ReadResponse) {
 	(*r.innerDatasource).Read(ctx, req, resp)
+}
+
+var (
+	_ action.ActionWithConfigure        = &FrameworkActionWrapper{}
+	_ action.ActionWithConfigValidators = &FrameworkActionWrapper{}
+	_ action.ActionWithValidateConfig   = &FrameworkActionWrapper{}
+	_ action.Action                     = &FrameworkActionWrapper{}
+)
+
+func NewFrameworkActionWrapper(i *action.Action) action.Action {
+	return &FrameworkActionWrapper{
+		innerAction: i,
+	}
+}
+
+type FrameworkActionWrapper struct {
+	innerAction *action.Action
+}
+
+func (r *FrameworkActionWrapper) Configure(ctx context.Context, req action.ConfigureRequest, resp *action.ConfigureResponse) {
+	rCasted, ok := (*r.innerAction).(action.ActionWithConfigure)
+	if ok {
+		if req.ProviderData == nil {
+			return
+		}
+		_, ok := req.ProviderData.(*FrameworkProvider)
+		if !ok {
+			resp.Diagnostics.AddError("Unexpected Action Configure Type", "")
+			return
+		}
+
+		rCasted.Configure(ctx, req, resp)
+	}
+}
+
+func (r *FrameworkActionWrapper) ValidateConfig(ctx context.Context, req action.ValidateConfigRequest, resp *action.ValidateConfigResponse) {
+	if rCasted, ok := (*r.innerAction).(action.ActionWithValidateConfig); ok {
+		rCasted.ValidateConfig(ctx, req, resp)
+	}
+}
+
+func (r *FrameworkActionWrapper) ConfigValidators(ctx context.Context) []action.ConfigValidator {
+	if rCasted, ok := (*r.innerAction).(action.ActionWithConfigValidators); ok {
+		return rCasted.ConfigValidators(ctx)
+	}
+	return nil
+}
+
+func (r *FrameworkActionWrapper) Metadata(ctx context.Context, req action.MetadataRequest, resp *action.MetadataResponse) {
+	(*r.innerAction).Metadata(ctx, req, resp)
+	resp.TypeName = req.ProviderTypeName + resp.TypeName
+}
+
+func (r *FrameworkActionWrapper) Schema(ctx context.Context, req action.SchemaRequest, resp *action.SchemaResponse) {
+	(*r.innerAction).Schema(ctx, req, resp)
+	fwutils.EnrichFrameworkActionSchema(&resp.Schema)
+}
+
+func (r *FrameworkActionWrapper) Invoke(ctx context.Context, req action.InvokeRequest, resp *action.InvokeResponse) {
+	(*r.innerAction).Invoke(ctx, req, resp)
 }
